@@ -9,6 +9,7 @@ import { DEFAULT_CREATION_CONFIG } from './game/types';
 const INITIAL_HUD: GameHudState = {
   zone: 'glade',
   zoneName: '精灵林涧',
+  worldTitle: '林涧微光',
   dewdropsCollected: 0,
   totalDewdrops: 7,
   hasWingBlessing: false,

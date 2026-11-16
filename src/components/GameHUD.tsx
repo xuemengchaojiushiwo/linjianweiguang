@@ -58,7 +58,7 @@ export function GameHUD({
         <div className="rounded-xl border border-white/12 bg-[#0d1812]/86 px-4 py-2.5 shadow-lg">
           <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
             <h1 className="font-display text-lg font-bold tracking-wide text-[#f2f6eb] whitespace-nowrap">
-              林涧微光
+              {hud.worldTitle}
             </h1>
             <span className="text-xs text-white/35" aria-hidden="true">
               ·

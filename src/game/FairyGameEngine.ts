@@ -238,21 +238,26 @@ export class FairyGameEngine {
 
   public applyCreationConfig(nextConfig: WorldCreationConfig): void {
     const prev = this.creationConfig;
-    const charChanged =
-      prev.character.theme !== nextConfig.character.theme ||
-      prev.character.hairHat !== nextConfig.character.hairHat ||
-      prev.character.wings !== nextConfig.character.wings ||
-      prev.character.wand !== nextConfig.character.wand;
-
-    const mapChanged =
-      prev.map.timeOfDay !== nextConfig.map.timeOfDay ||
-      prev.map.biome !== nextConfig.map.biome ||
-      prev.map.layout !== nextConfig.map.layout ||
-      prev.map.surprise !== nextConfig.map.surprise;
+    const charChanged = JSON.stringify(prev.character) !== JSON.stringify(nextConfig.character);
+    const mapChanged = JSON.stringify(prev.map) !== JSON.stringify(nextConfig.map);
+    const metaChanged =
+      prev.worldTitle !== nextConfig.worldTitle ||
+      prev.spriteName !== nextConfig.spriteName ||
+      prev.customGreeting !== nextConfig.customGreeting;
 
     this.creationConfig = {
-      character: { ...nextConfig.character },
-      map: { ...nextConfig.map },
+      spriteName: nextConfig.spriteName,
+      worldTitle: nextConfig.worldTitle,
+      guideSummary: nextConfig.guideSummary,
+      customGreeting: nextConfig.customGreeting,
+      character: {
+        ...nextConfig.character,
+        customColors: nextConfig.character.customColors ? { ...nextConfig.character.customColors } : undefined,
+      },
+      map: {
+        ...nextConfig.map,
+        customColors: nextConfig.map.customColors ? { ...nextConfig.map.customColors } : undefined,
+      },
     };
 
     if (charChanged) {
@@ -294,6 +299,8 @@ export class FairyGameEngine {
       this.applyZoneAtmosphere(this.currentZoneId);
       this.sound.playDoorTransition();
       this.emitHudState(true);
+    } else if (metaChanged) {
+      this.emitHudState(true);
     }
   }
 
@@ -304,10 +311,16 @@ export class FairyGameEngine {
 
     if (zoneId === 'glade') {
       const tod = this.creationConfig.map.timeOfDay;
+      const customSky = this.creationConfig.map.customColors?.skyHex;
+      const customFog = this.creationConfig.map.customColors?.fogHex;
+      const parseHex = (hex: string | undefined, fb: number) =>
+        hex && /^#[0-9a-fA-F]{6}$/.test(hex) ? Number.parseInt(hex.slice(1), 16) : fb;
+
       if (tod === 'sunset') {
-        const skyColor = new THREE.Color(0x472830);
-        this.scene.background = skyColor;
-        this.scene.fog = new THREE.FogExp2(0x472830, 0.017);
+        const skyHex = parseHex(customSky, 0x472830);
+        const fogHex = parseHex(customFog, skyHex);
+        this.scene.background = new THREE.Color(skyHex);
+        this.scene.fog = new THREE.FogExp2(fogHex, 0.017);
         this.hemiLight.color.setHex(0xffc99c);
         this.hemiLight.groundColor.setHex(0x4f342c);
         this.hemiLight.intensity = 0.88;
@@ -315,9 +328,10 @@ export class FairyGameEngine {
         this.keyLight.color.setHex(0xffa96b);
         this.rimLight.intensity = 0.65;
       } else if (tod === 'night') {
-        const skyColor = new THREE.Color(0x0d1729);
-        this.scene.background = skyColor;
-        this.scene.fog = new THREE.FogExp2(0x0d1729, 0.019);
+        const skyHex = parseHex(customSky, 0x0d1729);
+        const fogHex = parseHex(customFog, skyHex);
+        this.scene.background = new THREE.Color(skyHex);
+        this.scene.fog = new THREE.FogExp2(fogHex, 0.019);
         this.hemiLight.color.setHex(0x7ca6e8);
         this.hemiLight.groundColor.setHex(0x162426);
         this.hemiLight.intensity = 0.78;
@@ -325,9 +339,10 @@ export class FairyGameEngine {
         this.keyLight.color.setHex(0xb8d4ff);
         this.rimLight.intensity = 0.72;
       } else {
-        const skyColor = new THREE.Color(0x1f3a31);
-        this.scene.background = skyColor;
-        this.scene.fog = new THREE.FogExp2(0x1f3a31, 0.017);
+        const skyHex = parseHex(customSky, 0x1f3a31);
+        const fogHex = parseHex(customFog, skyHex);
+        this.scene.background = new THREE.Color(skyHex);
+        this.scene.fog = new THREE.FogExp2(fogHex, 0.017);
         this.hemiLight.color.setHex(0xb3ecff);
         this.hemiLight.groundColor.setHex(0x315236);
         this.hemiLight.intensity = 0.92;
@@ -409,6 +424,13 @@ export class FairyGameEngine {
   };
 
   private handleKeyDown = (e: KeyboardEvent): void => {
+    const target = e.target as HTMLElement | null;
+    if (
+      target &&
+      (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)
+    ) {
+      return;
+    }
     this.sound.unlock();
     this.keys.add(e.code);
 
@@ -525,7 +547,11 @@ export class FairyGameEngine {
   private startDialogue(npcId: NpcId): void {
     const profile = NPC_PROFILES[npcId];
     const startNodeId = getInitialDialogueNodeId(npcId, this.dewdropsCollected, TOTAL_DEWDROPS);
-    const node = profile.nodes[startNodeId];
+    const baseNode = profile.nodes[startNodeId];
+    const node =
+      npcId === 'elwin' && startNodeId === 'intro' && this.creationConfig.customGreeting
+        ? { ...baseNode, text: this.creationConfig.customGreeting }
+        : baseNode;
     this.talkedNpcs.add(npcId);
     this.sound.playDialogueTalk();
     this.activeDialogue = {
@@ -609,7 +635,8 @@ export class FairyGameEngine {
 
   // Floor & Collider Resolution
   private getFloorInfo(zone: ZoneData, x: number, z: number, actorY: number): { y: number; surface: 'grass' | 'wood' | 'stone' } {
-    let highestY = zone.id === 'glade' ? gladeGroundHeightAt(x, z) : 0;
+    const isCity = this.creationConfig.map.worldStyle === 'city';
+    let highestY = zone.id === 'glade' ? gladeGroundHeightAt(x, z, isCity) : 0;
     let surface: 'grass' | 'wood' | 'stone' = zone.floorMaterial;
 
     for (const p of zone.platforms) {
@@ -1010,7 +1037,8 @@ export class FairyGameEngine {
     );
 
     // Clamp camera above outdoor terrain or indoor floor
-    const minCamY = (this.currentZoneId === 'glade' ? gladeGroundHeightAt(_camDesired.x, _camDesired.z) : 0) + 0.65;
+    const isCity = this.creationConfig.map.worldStyle === 'city';
+    const minCamY = (this.currentZoneId === 'glade' ? gladeGroundHeightAt(_camDesired.x, _camDesired.z, isCity) : 0) + 0.65;
     if (_camDesired.y < minCamY) _camDesired.y = minCamY;
 
     // Keep camera inside indoor walls cleanly
@@ -1036,15 +1064,21 @@ export class FairyGameEngine {
   }
 
   private emitHudState(force = false): void {
+    const worldTitle = this.creationConfig.worldTitle || '林涧微光';
+    const zoneName =
+      this.currentZoneId === 'glade' && this.creationConfig.map.worldStyle === 'city'
+        ? '魔法街区'
+        : ZONE_NAMES[this.currentZoneId];
     const proxKey = this.proximityTarget ? `${this.proximityTarget.type}:${this.proximityTarget.id}` : 'none';
     const dlgKey = this.activeDialogue ? `${this.activeDialogue.npcId}:${this.activeDialogue.node.id}` : 'none';
-    const sig = `${this.currentZoneId}|${this.dewdropsCollected}|${this.hasWingBlessing}|${proxKey}|${dlgKey}|${this.isTransitioning}|${this.visitedRooms.size}|${this.talkedNpcs.size}`;
+    const sig = `${this.currentZoneId}|${zoneName}|${worldTitle}|${this.dewdropsCollected}|${this.hasWingBlessing}|${proxKey}|${dlgKey}|${this.isTransitioning}|${this.visitedRooms.size}|${this.talkedNpcs.size}`;
     if (!force && sig === this.lastHudSignature) return;
     this.lastHudSignature = sig;
 
     this.onHudChange({
       zone: this.currentZoneId,
-      zoneName: ZONE_NAMES[this.currentZoneId],
+      zoneName,
+      worldTitle,
       dewdropsCollected: this.dewdropsCollected,
       totalDewdrops: TOTAL_DEWDROPS,
       hasWingBlessing: this.hasWingBlessing,

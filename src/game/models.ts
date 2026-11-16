@@ -23,6 +23,7 @@ export interface PlayerRig {
   wingRightBottom: THREE.Group;
   wandGlow: THREE.Mesh;
   wispPivot: THREE.Group;
+  tailPivot?: THREE.Group;
   contactShadow: THREE.Mesh;
 }
 
@@ -236,11 +237,30 @@ function buildWandProp(
   return { group, glowMesh: crystal };
 }
 
+function parseHexColor(hex: string | undefined, fallback: number): number {
+  if (!hex || typeof hex !== 'string') return fallback;
+  const cleaned = hex.trim().replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(cleaned)) return fallback;
+  return Number.parseInt(cleaned, 16);
+}
+
 export function createPlayerSprite(
   contactShadowTex: THREE.CanvasTexture,
   config: CharacterCreationConfig = DEFAULT_CREATION_CONFIG.character,
 ): PlayerRig {
-  const palette = SPRITE_THEMES[config.theme];
+  const base = SPRITE_THEMES[config.theme];
+  const cc = config.customColors;
+  const palette: ThemePalette = {
+    tunic: parseHexColor(cc?.tunicHex, base.tunic),
+    overskirt: parseHexColor(cc?.overskirtHex, base.overskirt),
+    cape: parseHexColor(cc?.capeHex, base.cape),
+    hair: parseHexColor(cc?.hairHex, base.hair),
+    boot: parseHexColor(cc?.bootHex, base.boot),
+    wingColor: parseHexColor(cc?.wingColorHex, base.wingColor),
+    wingEmissive: parseHexColor(cc?.wingEmissiveHex, base.wingEmissive),
+    wandEmissive: parseHexColor(cc?.wandEmissiveHex, base.wandEmissive),
+    metal: base.metal,
+  };
   const root = new THREE.Group();
   const bodyPivot = new THREE.Group();
   root.add(bodyPivot);
@@ -455,24 +475,55 @@ export function createPlayerSprite(
     cheek.scale.set(1.15, 0.62, 0.4);
     headGroup.add(cheek);
 
-    // Sculpted Pointed Elf Ear + Inner Ear + Golden Ear Cuff
-    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.048, 0.22, 8), skinMat);
-    ear.position.set(side * 0.255, 0.19, 0.0);
-    ear.rotation.z = -side * (Math.PI / 2 - 0.34);
-    ear.rotation.y = -side * 0.22;
-    ear.castShadow = true;
-    headGroup.add(ear);
+    const earStyle = config.earStyle ?? 'elf';
+    if (earStyle === 'cat') {
+      // Cute triangular fuzzy cat ears perched on upper crown
+      const catOuter = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.19, 4), hairMat);
+      catOuter.position.set(side * 0.14, 0.41, 0.02);
+      catOuter.rotation.z = -side * 0.28;
+      catOuter.rotation.y = side * 0.32;
+      catOuter.castShadow = true;
+      headGroup.add(catOuter);
 
-    const innerEar = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.15, 8), innerEarMat);
-    innerEar.position.set(side * 0.25, 0.19, 0.016);
-    innerEar.rotation.z = -side * (Math.PI / 2 - 0.34);
-    innerEar.rotation.y = -side * 0.22;
-    headGroup.add(innerEar);
+      const catInner = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.125, 4), innerEarMat);
+      catInner.position.set(side * 0.136, 0.405, 0.045);
+      catInner.rotation.z = -side * 0.28;
+      catInner.rotation.y = side * 0.32;
+      headGroup.add(catInner);
+    } else if (earStyle === 'bunny') {
+      // Adorable tall slightly angled bunny ears
+      const bunnyOuter = new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.24, 6, 10), hairMat);
+      bunnyOuter.position.set(side * 0.105, 0.51, -0.02);
+      bunnyOuter.rotation.z = -side * 0.18;
+      bunnyOuter.rotation.x = -0.1;
+      bunnyOuter.castShadow = true;
+      headGroup.add(bunnyOuter);
 
-    const earCuff = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.008, 6, 10), metalMat);
-    earCuff.position.set(side * 0.27, 0.195, 0.0);
-    earCuff.rotation.y = Math.PI / 2;
-    headGroup.add(earCuff);
+      const bunnyInner = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.17, 6, 8), innerEarMat);
+      bunnyInner.position.set(side * 0.105, 0.505, 0.008);
+      bunnyInner.rotation.z = -side * 0.18;
+      bunnyInner.rotation.x = -0.1;
+      headGroup.add(bunnyInner);
+    } else {
+      // Sculpted Pointed Elf Ear + Inner Ear + Golden Ear Cuff
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.048, 0.22, 8), skinMat);
+      ear.position.set(side * 0.255, 0.19, 0.0);
+      ear.rotation.z = -side * (Math.PI / 2 - 0.34);
+      ear.rotation.y = -side * 0.22;
+      ear.castShadow = true;
+      headGroup.add(ear);
+
+      const innerEar = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.15, 8), innerEarMat);
+      innerEar.position.set(side * 0.25, 0.19, 0.016);
+      innerEar.rotation.z = -side * (Math.PI / 2 - 0.34);
+      innerEar.rotation.y = -side * 0.22;
+      headGroup.add(innerEar);
+
+      const earCuff = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.008, 6, 10), metalMat);
+      earCuff.position.set(side * 0.27, 0.195, 0.0);
+      earCuff.rotation.y = Math.PI / 2;
+      headGroup.add(earCuff);
+    }
   }
 
   // Hair Base + Front Fringe Bangs
@@ -588,25 +639,31 @@ export function createPlayerSprite(
   const topWingGeo = createWingShapeGeometry(config.wings, 0.6, 0.38);
   const botWingGeo = createWingShapeGeometry(config.wings, 0.42, 0.27);
 
+  const wingScale = THREE.MathUtils.clamp(config.wingScale ?? 1.0, 0.7, 1.65);
+
   const wingLeftTop = buildWingPart(topWingGeo, wingMat, veinMat, 0.6, true);
   wingLeftTop.position.set(-0.06, 0.82, -0.15);
   wingLeftTop.rotation.y = Math.PI - 0.42;
   wingLeftTop.rotation.z = 0.26;
+  wingLeftTop.scale.setScalar(wingScale);
 
   const wingRightTop = buildWingPart(topWingGeo, wingMat, veinMat, 0.6, true);
   wingRightTop.position.set(0.06, 0.82, -0.15);
   wingRightTop.rotation.y = 0.42;
   wingRightTop.rotation.z = 0.26;
+  wingRightTop.scale.setScalar(wingScale);
 
   const wingLeftBottom = buildWingPart(botWingGeo, wingMat, veinMat, 0.42, false);
   wingLeftBottom.position.set(-0.05, 0.67, -0.15);
   wingLeftBottom.rotation.y = Math.PI - 0.56;
   wingLeftBottom.rotation.z = -0.32;
+  wingLeftBottom.scale.setScalar(wingScale);
 
   const wingRightBottom = buildWingPart(botWingGeo, wingMat, veinMat, 0.42, false);
   wingRightBottom.position.set(0.05, 0.67, -0.15);
   wingRightBottom.rotation.y = 0.56;
   wingRightBottom.rotation.z = -0.32;
+  wingRightBottom.scale.setScalar(wingScale);
 
   bodyPivot.add(wingLeftTop, wingRightTop, wingLeftBottom, wingRightBottom);
 
@@ -631,6 +688,32 @@ export function createPlayerSprite(
   wispHalo.rotation.x = Math.PI / 3;
   wispPivot.add(wispOrb, wispHalo);
   bodyPivot.add(wispPivot);
+
+  // 6b. Cute Tail for Cat / Bunny Fairy!
+  let tailPivot: THREE.Group | undefined;
+  if (config.earStyle === 'cat') {
+    tailPivot = new THREE.Group();
+    tailPivot.position.set(0, 0.56, -0.21);
+    const tailCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, -0.02, -0.18),
+      new THREE.Vector3(0.04, 0.14, -0.34),
+      new THREE.Vector3(0.02, 0.32, -0.38),
+    ]);
+    const tailMesh = new THREE.Mesh(new THREE.TubeGeometry(tailCurve, 12, 0.036, 8, false), hairMat);
+    tailMesh.castShadow = true;
+    const tailTip = new THREE.Mesh(new THREE.SphereGeometry(0.042, 8, 8), innerEarMat);
+    tailTip.position.set(0.02, 0.32, -0.38);
+    tailPivot.add(tailMesh, tailTip);
+    bodyPivot.add(tailPivot);
+  } else if (config.earStyle === 'bunny') {
+    tailPivot = new THREE.Group();
+    tailPivot.position.set(0, 0.54, -0.23);
+    const puff = new THREE.Mesh(new THREE.SphereGeometry(0.085, 10, 10), sockMat);
+    puff.castShadow = true;
+    tailPivot.add(puff);
+    bodyPivot.add(tailPivot);
+  }
 
   // 7. Ground Contact Shadow
   const shadowGeo = new THREE.PlaneGeometry(1.0, 1.0);
@@ -659,6 +742,7 @@ export function createPlayerSprite(
     wingRightBottom,
     wandGlow: rightArmBuilt.wandGlow!,
     wispPivot,
+    tailPivot,
     contactShadow,
   };
 }
@@ -712,6 +796,11 @@ export function animatePlayerSprite(
 
   rig.wispPivot.rotation.y = time * 1.9;
   rig.wispPivot.position.y = 1.12 + Math.sin(time * 3.1) * 0.12;
+
+  if (rig.tailPivot) {
+    rig.tailPivot.rotation.y = Math.sin(time * (speedRatio > 0.1 ? 8 : 3.2)) * 0.35;
+    rig.tailPivot.rotation.x = Math.cos(time * 2.4) * 0.1;
+  }
 
   const glowMat = rig.wandGlow.material as THREE.MeshStandardMaterial;
   glowMat.emissiveIntensity = (hasBlessing ? 2.4 : 1.55) + Math.sin(time * 4.5) * 0.35;
@@ -1016,15 +1105,20 @@ export function createCottageExterior(textures: TextureBundle): THREE.Group {
   return group;
 }
 
-export function createTreehouseExterior(textures: TextureBundle, biome: BiomeId = 'emerald'): THREE.Group {
+export function createTreehouseExterior(
+  textures: TextureBundle,
+  biome: BiomeId = 'emerald',
+  foliageTintHex?: string,
+): THREE.Group {
   const group = new THREE.Group();
 
-  const canopyHex = biome === 'sakura' ? 0xf9a8d4 : biome === 'autumn' ? 0xea580c : 0x3b7a52;
-  const canopyTopHex = biome === 'sakura' ? 0xfbcfe8 : biome === 'autumn' ? 0xf59e0b : 0x529b62;
+  const defaultCanopy = biome === 'sakura' ? 0xf9a8d4 : biome === 'autumn' ? 0xea580c : 0x3b7a52;
+  const canopyHex = parseHexColor(foliageTintHex, defaultCanopy);
+  const topColor = new THREE.Color(canopyHex).offsetHSL(0.01, 0.02, 0.09);
 
   const barkMat = new THREE.MeshStandardMaterial({ map: textures.bark, roughness: 0.9, metalness: 0.02 });
   const leafMat = new THREE.MeshStandardMaterial({ color: canopyHex, roughness: 0.78, metalness: 0.02 });
-  const leafTopMat = new THREE.MeshStandardMaterial({ color: canopyTopHex, roughness: 0.74, metalness: 0.02 });
+  const leafTopMat = new THREE.MeshStandardMaterial({ color: topColor, roughness: 0.74, metalness: 0.02 });
   const woodMat = new THREE.MeshStandardMaterial({ map: textures.warmWood, roughness: 0.65, metalness: 0.04 });
   const glowMat = new THREE.MeshStandardMaterial({
     color: 0xe0f2fe,
@@ -1181,6 +1275,7 @@ export function createInstancedForestGrove(
   groundHeightAt: (x: number, z: number) => number,
   biome: BiomeId = 'emerald',
   extraFlowers = false,
+  foliageTintHex?: string,
 ): THREE.Group {
   const grove = new THREE.Group();
 
@@ -1224,6 +1319,7 @@ export function createInstancedForestGrove(
 
   const dummy = new THREE.Object3D();
   const tint = new THREE.Color();
+  const customFoliageNum = foliageTintHex ? parseHexColor(foliageTintHex, -1) : -1;
 
   treePositions.forEach(([x, z, scale], i) => {
     const y = groundHeightAt(x, z) - 0.15;
@@ -1235,7 +1331,10 @@ export function createInstancedForestGrove(
     crownsLow.setMatrixAt(i, dummy.matrix);
     crownsHigh.setMatrixAt(i, dummy.matrix);
 
-    if (biome === 'sakura') {
+    if (customFoliageNum >= 0) {
+      tint.setHex(customFoliageNum);
+      tint.offsetHSL((Math.random() - 0.5) * 0.04, (Math.random() - 0.5) * 0.08, (Math.random() - 0.5) * 0.08);
+    } else if (biome === 'sakura') {
       tint.setHSL(0.92 + (Math.random() - 0.5) * 0.04, 0.65, 0.72 + Math.random() * 0.1);
     } else if (biome === 'autumn') {
       tint.setHSL(0.08 + (Math.random() - 0.5) * 0.05, 0.78, 0.46 + Math.random() * 0.1);
@@ -1295,4 +1394,265 @@ export function createInstancedForestGrove(
   grove.add(flowers);
 
   return grove;
+}
+
+export function createCityShopExterior(
+  textures: TextureBundle,
+  variant: 'apothecary_shop' | 'bookstore_shop',
+  accentHex?: string,
+): THREE.Group {
+  const group = new THREE.Group();
+  const isCandy = variant === 'apothecary_shop';
+  const defaultAccent = isCandy ? 0xf472b6 : 0x38bdf8;
+  const accentNum = parseHexColor(accentHex, defaultAccent);
+
+  const stoneMat = new THREE.MeshStandardMaterial({ map: textures.cobble, roughness: 0.8 });
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: isCandy ? 0xfff1f2 : 0xeff6ff,
+    roughness: 0.65,
+  });
+  const trimMat = new THREE.MeshStandardMaterial({ color: accentNum, roughness: 0.45 });
+  const roofMat = new THREE.MeshStandardMaterial({
+    color: isCandy ? 0xbe185d : 0x1d4ed8,
+    roughness: 0.55,
+  });
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0xfef9c3,
+    emissive: isCandy ? 0xfbbf24 : 0x60a5fa,
+    emissiveIntensity: 1.35,
+    roughness: 0.18,
+  });
+  const woodMat = new THREE.MeshStandardMaterial({ map: textures.warmWood, roughness: 0.62 });
+
+  // Sidewalk Plinth
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.42, 5.8), stoneMat);
+  plinth.position.y = 0.21;
+  plinth.castShadow = true;
+  plinth.receiveShadow = true;
+  group.add(plinth);
+
+  // Two-story Cute Boutique Shop Body
+  const body = new THREE.Mesh(new THREE.BoxGeometry(5.8, 4.6, 4.9), wallMat);
+  body.position.y = 2.7;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  // Cornice & Roof Terrace Parapet (walkable top at ~5.3)
+  const cornice = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.4, 5.3), roofMat);
+  cornice.position.y = 5.15;
+  cornice.castShadow = true;
+  group.add(cornice);
+
+  // Rooftop Glowing Neon / Magic Shop Sign Board
+  const signPost = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.95, 0.24), trimMat);
+  signPost.position.set(0, 5.85, 2.1);
+  signPost.castShadow = true;
+  group.add(signPost);
+
+  const signGlow = new THREE.Mesh(
+    new THREE.BoxGeometry(2.8, 0.62, 0.28),
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: accentNum,
+      emissiveIntensity: 1.8,
+      roughness: 0.2,
+    }),
+  );
+  signGlow.position.set(0, 5.85, 2.12);
+  group.add(signGlow);
+
+  // Striped Shop Awning over Porch
+  for (let i = -3; i <= 3; i++) {
+    const stripeMat = i % 2 === 0 ? trimMat : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55 });
+    const slat = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.14, 1.35), stripeMat);
+    slat.position.set(i * 0.76, 2.68, 2.9);
+    slat.rotation.x = 0.34;
+    slat.castShadow = true;
+    group.add(slat);
+  }
+
+  // Shop Display Windows + Upper Story Windows
+  for (const wx of [-1.75, 1.75]) {
+    const lowerWin = new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.25, 0.14), glassMat);
+    lowerWin.position.set(wx, 1.45, 2.46);
+    group.add(lowerWin);
+
+    const upperWin = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.15, 0.14), glassMat);
+    upperWin.position.set(wx, 3.85, 2.46);
+    group.add(upperWin);
+  }
+
+  // Front Porch Step & Doorway
+  const porch = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.45, 1.45), stoneMat);
+  porch.position.set(0, 0.225, 3.35);
+  porch.castShadow = true;
+  porch.receiveShadow = true;
+  group.add(porch);
+
+  const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.55, 2.2, 0.32), trimMat);
+  doorFrame.position.set(0, 1.48, 2.5);
+  group.add(doorFrame);
+
+  const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(1.18, 1.9, 0.16), woodMat);
+  doorLeaf.position.set(0, 1.4, 2.62);
+  group.add(doorLeaf);
+
+  const lamp = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 10, 10),
+    new THREE.MeshStandardMaterial({ color: 0xfef08a, emissive: 0xf59e0b, emissiveIntensity: 2.0 }),
+  );
+  lamp.position.set(1.05, 2.35, 2.85);
+  group.add(lamp);
+
+  return group;
+}
+
+export function createCitySkylineAndStreets(
+  textures: TextureBundle,
+  accentHex?: string,
+  extraDecor = false,
+): THREE.Group {
+  const city = new THREE.Group();
+  const accentColor = parseHexColor(accentHex, 0xf472b6);
+
+  // 1. Cross-shaped Main City Avenue & Crosswalks
+  const roadMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.85, metalness: 0.05 });
+  const roadNS = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 56), roadMat);
+  roadNS.rotation.x = -Math.PI / 2;
+  roadNS.position.y = 0.015;
+  roadNS.receiveShadow = true;
+  city.add(roadNS);
+
+  const roadEW = new THREE.Mesh(new THREE.PlaneGeometry(56, 5.6), roadMat);
+  roadEW.rotation.x = -Math.PI / 2;
+  roadEW.position.y = 0.016;
+  roadEW.receiveShadow = true;
+  city.add(roadEW);
+
+  // White crosswalk zebra bars
+  const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.65 });
+  for (let i = -2; i <= 2; i++) {
+    for (const zOff of [-6.2, 6.2]) {
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 1.5), stripeMat);
+      bar.rotation.x = -Math.PI / 2;
+      bar.position.set(i * 0.95, 0.025, zOff);
+      city.add(bar);
+    }
+    for (const xOff of [-6.2, 6.2]) {
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.55), stripeMat);
+      bar.rotation.x = -Math.PI / 2;
+      bar.position.set(xOff, 0.025, i * 0.95);
+      city.add(bar);
+    }
+  }
+
+  // 2. Surrounding Tall City Skyscrapers with Glowing Windows
+  const buildingPalette = [0x475569, 0x3b4963, 0x64748b, 0x4c3f6e, 0x524b69];
+  const windowGlowPalette = [0xfef08a, 0x93c5fd, 0xfbcfe8, accentColor];
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.7 });
+
+  const towerCount = 24;
+  for (let i = 0; i < towerCount; i++) {
+    const angle = (i / towerCount) * Math.PI * 2 + 0.14;
+    // Skip main North/South/East/West street axis lines slightly
+    if (Math.abs(Math.sin(angle)) < 0.16 || Math.abs(Math.cos(angle)) < 0.16) continue;
+
+    const dist = 20.5 + (i % 3) * 4.5;
+    const bx = Math.cos(angle) * dist;
+    const bz = Math.sin(angle) * dist;
+    const w = 3.6 + (i % 3) * 1.1;
+    const d = 3.6 + ((i + 1) % 3) * 1.0;
+    const h = 8.5 + (i % 5) * 3.1;
+
+    const towerGroup = new THREE.Group();
+    towerGroup.position.set(bx, 0, bz);
+    towerGroup.lookAt(0, 0, 0);
+
+    const towerMat = new THREE.MeshStandardMaterial({
+      color: buildingPalette[i % buildingPalette.length],
+      roughness: 0.72,
+      metalness: 0.15,
+    });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), towerMat);
+    body.position.y = h / 2;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    towerGroup.add(body);
+
+    // Rooftop neon trim band
+    const winCol = windowGlowPalette[i % windowGlowPalette.length];
+    const glowMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: winCol,
+      emissiveIntensity: 1.4,
+      roughness: 0.2,
+    });
+    const roofBand = new THREE.Mesh(new THREE.BoxGeometry(w + 0.12, 0.25, d + 0.12), glowMat);
+    roofBand.position.y = h - 0.35;
+    towerGroup.add(roofBand);
+
+    // Lit window strips facing street
+    const floors = Math.floor((h - 1.5) / 1.45);
+    for (let f = 0; f < floors; f++) {
+      for (const wx of [-w * 0.26, 0, w * 0.26]) {
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.72), glowMat);
+        win.position.set(wx, 1.4 + f * 1.45, d / 2 + 0.03);
+        towerGroup.add(win);
+      }
+    }
+
+    city.add(towerGroup);
+  }
+
+  // 3. Cute City Streetlamps along the Avenue
+  const lampSpots: [number, number][] = [
+    [-3.4, -4.5],
+    [3.4, -4.5],
+    [-3.4, 4.5],
+    [3.4, 4.5],
+    [-11.5, 3.4],
+    [11.5, -3.4],
+  ];
+  const bulbMat = new THREE.MeshStandardMaterial({
+    color: 0xfef9c3,
+    emissive: 0xfbbf24,
+    emissiveIntensity: 2.0,
+    roughness: 0.15,
+  });
+  lampSpots.forEach(([lx, lz]) => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 3.1, 8), poleMat);
+    post.position.set(lx, 1.55, lz);
+    post.castShadow = true;
+    city.add(post);
+
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 10), bulbMat);
+    bulb.position.set(lx, 3.2, lz);
+    city.add(bulb);
+  });
+
+  // 4. Optional Street Flower Planters along sidewalks
+  if (extraDecor) {
+    const planterMat = new THREE.MeshStandardMaterial({ map: textures.cobble, roughness: 0.85 });
+    const bushMat = new THREE.MeshStandardMaterial({ color: accentColor, emissive: accentColor, emissiveIntensity: 0.25, roughness: 0.5 });
+    const planterSpots: [number, number][] = [
+      [-4.2, -9.5],
+      [4.2, -9.5],
+      [-4.2, 9.5],
+      [4.2, 9.5],
+      [-9.5, -3.5],
+      [9.5, 3.5],
+    ];
+    planterSpots.forEach(([px, pz]) => {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.45, 1.1), planterMat);
+      box.position.set(px, 0.225, pz);
+      box.castShadow = true;
+      city.add(box);
+      const shrub = new THREE.Mesh(new THREE.DodecahedronGeometry(0.45, 0), bushMat);
+      shrub.position.set(px, 0.65, pz);
+      city.add(shrub);
+    });
+  }
+
+  return city;
 }

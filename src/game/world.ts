@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {
   createBouncyMushroom,
+  createCityShopExterior,
+  createCitySkylineAndStreets,
   createCottageExterior,
   createDewdropCollectible,
   createInstancedForestGrove,
@@ -36,7 +38,9 @@ export interface ZoneData {
   fireflyPoints?: THREE.Points;
 }
 
-export function gladeGroundHeightAt(x: number, z: number): number {
+export function gladeGroundHeightAt(x: number, z: number, flatCity = false): number {
+  if (flatCity) return 0;
+
   const distFromCenter = Math.hypot(x, z);
   if (distFromCenter < 12.5) {
     const streamX = 5.4 + Math.sin(z * 0.22) * 1.1;
@@ -69,6 +73,7 @@ export function buildAllZones(
 }
 
 function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): ZoneData {
+  const isCity = mapConfig.worldStyle === 'city';
   const group = new THREE.Group();
   const colliders: WorldCollider[] = [];
   const platforms: WalkablePlatform[] = [];
@@ -79,20 +84,30 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
   const dynamicLights: ZoneData['dynamicLights'] = [];
   const animatedMeshes: ZoneData['animatedMeshes'] = [];
 
-  // 1. Continuous Natural Mossy Terrain tinted slightly by biome
-  const terrainGeo = new THREE.PlaneGeometry(76, 76, 68, 68);
+  // 1. Continuous Ground (Mossy Meadow OR Paved City Sidewalk)
+  const terrainGeo = new THREE.PlaneGeometry(76, 76, isCity ? 16 : 68, isCity ? 16 : 68);
   terrainGeo.rotateX(-Math.PI / 2);
   const posAttr = terrainGeo.attributes.position;
   for (let i = 0; i < posAttr.count; i++) {
     const vx = posAttr.getX(i);
     const vz = posAttr.getZ(i);
-    posAttr.setY(i, gladeGroundHeightAt(vx, vz));
+    posAttr.setY(i, gladeGroundHeightAt(vx, vz, isCity));
   }
   terrainGeo.computeVertexNormals();
+  const defaultGroundTint = isCity
+    ? 0x94a3b8
+    : mapConfig.biome === 'sakura'
+      ? 0xd9f2d0
+      : mapConfig.biome === 'autumn'
+        ? 0xdcb87a
+        : 0xffffff;
+  const customGround = mapConfig.customColors?.groundTintHex;
   const terrainTint =
-    mapConfig.biome === 'sakura' ? 0xd9f2d0 : mapConfig.biome === 'autumn' ? 0xdcb87a : 0xffffff;
+    !isCity && customGround && /^#[0-9a-fA-F]{6}$/.test(customGround)
+      ? Number.parseInt(customGround.slice(1), 16)
+      : defaultGroundTint;
   const terrainMat = new THREE.MeshStandardMaterial({
-    map: textures.mossGrass,
+    map: isCity ? textures.cobble : textures.mossGrass,
     color: terrainTint,
     roughness: 0.92,
     metalness: 0.0,
@@ -101,29 +116,31 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
   terrain.receiveShadow = true;
   group.add(terrain);
 
-  // 2. Sparkling Brook Water Ribbon
-  const waterGeo = new THREE.PlaneGeometry(3.2, 22, 8, 28);
-  waterGeo.rotateX(-Math.PI / 2);
-  const wPos = waterGeo.attributes.position;
-  for (let i = 0; i < wPos.count; i++) {
-    const wz = wPos.getZ(i) - 5;
-    wPos.setZ(i, wz);
-    wPos.setX(i, wPos.getX(i) + 5.4 + Math.sin(wz * 0.22) * 1.1);
+  // 2. Sparkling Brook Water Ribbon (Forest mode only)
+  if (!isCity) {
+    const waterGeo = new THREE.PlaneGeometry(3.2, 22, 8, 28);
+    waterGeo.rotateX(-Math.PI / 2);
+    const wPos = waterGeo.attributes.position;
+    for (let i = 0; i < wPos.count; i++) {
+      const wz = wPos.getZ(i) - 5;
+      wPos.setZ(i, wz);
+      wPos.setX(i, wPos.getX(i) + 5.4 + Math.sin(wz * 0.22) * 1.1);
+    }
+    waterGeo.computeVertexNormals();
+    const waterMat = new THREE.MeshPhysicalMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0e7490,
+      emissiveIntensity: 0.25,
+      roughness: 0.12,
+      metalness: 0.1,
+      clearcoat: 1.0,
+      transparent: true,
+      opacity: 0.82,
+    });
+    const water = new THREE.Mesh(waterGeo, waterMat);
+    water.position.y = -0.14;
+    group.add(water);
   }
-  waterGeo.computeVertexNormals();
-  const waterMat = new THREE.MeshPhysicalMaterial({
-    color: 0x38bdf8,
-    emissive: 0x0e7490,
-    emissiveIntensity: 0.25,
-    roughness: 0.12,
-    metalness: 0.1,
-    clearcoat: 1.0,
-    transparent: true,
-    opacity: 0.82,
-  });
-  const water = new THREE.Mesh(waterGeo, waterMat);
-  water.position.y = -0.14;
-  group.add(water);
 
   // 3. Central Moonwell Stone Plaza + Glowing Fountain
   const plaza = new THREE.Mesh(
@@ -159,32 +176,33 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
 
   colliders.push({ kind: 'cylinder', x: 0, z: -1.6, radius: 1.38, minY: 0, maxY: 1.0 });
 
-  // 4. Arched Wooden Bridge over the Brook at z = -1.2, x = 5.15
-  const bridgeMat = new THREE.MeshStandardMaterial({ map: textures.warmWood, roughness: 0.68 });
-  const bridgeDeck = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.24, 1.8), bridgeMat);
-  bridgeDeck.position.set(5.15, 0.22, -1.2);
-  bridgeDeck.castShadow = true;
-  bridgeDeck.receiveShadow = true;
-  group.add(bridgeDeck);
+  // 4. Arched Wooden Bridge over the Brook (Forest mode only)
+  if (!isCity) {
+    const bridgeMat = new THREE.MeshStandardMaterial({ map: textures.warmWood, roughness: 0.68 });
+    const bridgeDeck = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.24, 1.8), bridgeMat);
+    bridgeDeck.position.set(5.15, 0.22, -1.2);
+    bridgeDeck.castShadow = true;
+    bridgeDeck.receiveShadow = true;
+    group.add(bridgeDeck);
 
-  // Bridge posts
-  for (const bx of [3.4, 6.9]) {
-    for (const bz of [-2.0, -0.4]) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.85, 8), bridgeMat);
-      post.position.set(bx, 0.55, bz);
-      post.castShadow = true;
-      group.add(post);
+    for (const bx of [3.4, 6.9]) {
+      for (const bz of [-2.0, -0.4]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.85, 8), bridgeMat);
+        post.position.set(bx, 0.55, bz);
+        post.castShadow = true;
+        group.add(post);
+      }
     }
+    platforms.push({
+      kind: 'box',
+      minX: 3.2,
+      maxX: 7.1,
+      minZ: -2.15,
+      maxZ: -0.25,
+      topY: 0.34,
+      materialKind: 'wood',
+    });
   }
-  platforms.push({
-    kind: 'box',
-    minX: 3.2,
-    maxX: 7.1,
-    minZ: -2.15,
-    maxZ: -0.25,
-    topY: 0.34,
-    materialKind: 'wood',
-  });
 
   // Layout-driven building placements
   const cottagePos =
@@ -196,32 +214,55 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
       ? new THREE.Vector3(8.5, 0, -8.5)
       : new THREE.Vector3(8.4, 0, 6.8);
 
-  // 5. Acorn Apothecary Cottage
-  const cottage = createCottageExterior(textures);
+  // 5. Building 1: Acorn Apothecary Cottage OR Candy Alchemy Boutique Shop
+  const cottage = isCity
+    ? createCityShopExterior(textures, 'apothecary_shop', mapConfig.customColors?.foliageTintHex)
+    : createCottageExterior(textures);
   cottage.position.copy(cottagePos);
   group.add(cottage);
 
-  colliders.push({ kind: 'cylinder', x: cottagePos.x, z: cottagePos.z, radius: 3.4, minY: 0, maxY: 3.3 });
+  if (isCity) {
+    colliders.push({
+      kind: 'box',
+      minX: cottagePos.x - 3.25,
+      maxX: cottagePos.x + 3.25,
+      minZ: cottagePos.z - 2.85,
+      maxZ: cottagePos.z + 2.7,
+      minY: 0,
+      maxY: 5.2,
+    });
+    platforms.push({
+      kind: 'box',
+      minX: cottagePos.x - 3.1,
+      maxX: cottagePos.x + 3.1,
+      minZ: cottagePos.z - 2.6,
+      maxZ: cottagePos.z + 2.6,
+      topY: 5.35,
+      materialKind: 'stone',
+    });
+  } else {
+    colliders.push({ kind: 'cylinder', x: cottagePos.x, z: cottagePos.z, radius: 3.4, minY: 0, maxY: 3.3 });
+    platforms.push({
+      kind: 'disc',
+      minX: cottagePos.x - 2.6,
+      maxX: cottagePos.x + 2.6,
+      minZ: cottagePos.z - 2.6,
+      maxZ: cottagePos.z + 2.6,
+      x: cottagePos.x,
+      z: cottagePos.z,
+      radius: 2.6,
+      topY: 5.5,
+      materialKind: 'moss',
+    });
+  }
   platforms.push({
     kind: 'box',
     minX: cottagePos.x - 1.25,
     maxX: cottagePos.x + 1.25,
-    minZ: cottagePos.z + 2.8,
+    minZ: cottagePos.z + 2.4,
     maxZ: cottagePos.z + 4.45,
     topY: 0.45,
     materialKind: 'wood',
-  });
-  platforms.push({
-    kind: 'disc',
-    minX: cottagePos.x - 2.6,
-    maxX: cottagePos.x + 2.6,
-    minZ: cottagePos.z - 2.6,
-    maxZ: cottagePos.z + 2.6,
-    x: cottagePos.x,
-    z: cottagePos.z,
-    radius: 2.6,
-    topY: 5.5,
-    materialKind: 'moss',
   });
 
   const cottageLight = new THREE.PointLight(0xf59e0b, 2.4, 10, 1.8);
@@ -229,7 +270,7 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
   group.add(cottageLight);
   dynamicLights.push({ light: cottageLight, baseIntensity: 2.4, speed: 3.2, phase: 0 });
 
-  const apothDoorPos = new THREE.Vector3(cottagePos.x, 0.48, cottagePos.z + 3.85);
+  const apothDoorPos = new THREE.Vector3(cottagePos.x, 0.48, cottagePos.z + (isCity ? 3.45 : 3.85));
   const apothGlowRing = new THREE.Mesh(
     new THREE.RingGeometry(0.45, 0.64, 24),
     new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide, transparent: true, opacity: 0.78 }),
@@ -240,7 +281,7 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
 
   portals.push({
     id: 'enter_apothecary',
-    label: '进入 橡实炼金小屋',
+    label: isCity ? '进入 魔药糖果商店' : '进入 橡实炼金小屋',
     fromZone: 'glade',
     toZone: 'apothecary',
     position: apothDoorPos,
@@ -250,58 +291,89 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
     glowRing: apothGlowRing,
   });
 
-  // 6. Starlight Treehouse Library
-  const treehouse = createTreehouseExterior(textures, mapConfig.biome);
+  // 6. Building 2: Starlight Treehouse Library OR Starlight Corner Bookstore Shop
+  const treehouse = isCity
+    ? createCityShopExterior(textures, 'bookstore_shop', mapConfig.customColors?.fireflyHex)
+    : createTreehouseExterior(textures, mapConfig.biome, mapConfig.customColors?.foliageTintHex);
   treehouse.position.copy(treePos);
   group.add(treehouse);
 
-  colliders.push({ kind: 'cylinder', x: treePos.x, z: treePos.z, radius: 2.65, minY: 0, maxY: 6.4 });
-  // Stepping platforms up to balcony
-  platforms.push({
-    kind: 'disc',
-    minX: 0,
-    maxX: 0,
-    minZ: 0,
-    maxZ: 0,
-    x: treePos.x - 4.3,
-    z: treePos.z - 0.3,
-    radius: 0.95,
-    topY: 0.55,
-    materialKind: 'wood',
-  });
-  platforms.push({
-    kind: 'disc',
-    minX: 0,
-    maxX: 0,
-    minZ: 0,
-    maxZ: 0,
-    x: treePos.x - 3.9,
-    z: treePos.z + 0.75,
-    radius: 0.95,
-    topY: 1.15,
-    materialKind: 'wood',
-  });
-  // Elevated Balcony Deck
-  platforms.push({
-    kind: 'disc',
-    minX: 0,
-    maxX: 0,
-    minZ: 0,
-    maxZ: 0,
-    x: treePos.x - 2.5,
-    z: treePos.z + 1.5,
-    radius: 1.8,
-    topY: 2.0,
-    materialKind: 'wood',
-  });
+  let libDoorPos: THREE.Vector3;
+  if (isCity) {
+    colliders.push({
+      kind: 'box',
+      minX: treePos.x - 3.25,
+      maxX: treePos.x + 3.25,
+      minZ: treePos.z - 2.85,
+      maxZ: treePos.z + 2.7,
+      minY: 0,
+      maxY: 5.2,
+    });
+    platforms.push({
+      kind: 'box',
+      minX: treePos.x - 1.25,
+      maxX: treePos.x + 1.25,
+      minZ: treePos.z + 2.4,
+      maxZ: treePos.z + 4.45,
+      topY: 0.45,
+      materialKind: 'wood',
+    });
+    platforms.push({
+      kind: 'box',
+      minX: treePos.x - 3.1,
+      maxX: treePos.x + 3.1,
+      minZ: treePos.z - 2.6,
+      maxZ: treePos.z + 2.6,
+      topY: 5.35,
+      materialKind: 'stone',
+    });
+    libDoorPos = new THREE.Vector3(treePos.x, 0.48, treePos.z + 3.45);
+  } else {
+    colliders.push({ kind: 'cylinder', x: treePos.x, z: treePos.z, radius: 2.65, minY: 0, maxY: 6.4 });
+    platforms.push({
+      kind: 'disc',
+      minX: 0,
+      maxX: 0,
+      minZ: 0,
+      maxZ: 0,
+      x: treePos.x - 4.3,
+      z: treePos.z - 0.3,
+      radius: 0.95,
+      topY: 0.55,
+      materialKind: 'wood',
+    });
+    platforms.push({
+      kind: 'disc',
+      minX: 0,
+      maxX: 0,
+      minZ: 0,
+      maxZ: 0,
+      x: treePos.x - 3.9,
+      z: treePos.z + 0.75,
+      radius: 0.95,
+      topY: 1.15,
+      materialKind: 'wood',
+    });
+    platforms.push({
+      kind: 'disc',
+      minX: 0,
+      maxX: 0,
+      minZ: 0,
+      maxZ: 0,
+      x: treePos.x - 2.5,
+      z: treePos.z + 1.5,
+      radius: 1.8,
+      topY: 2.0,
+      materialKind: 'wood',
+    });
+    libDoorPos = new THREE.Vector3(treePos.x - 2.35, 2.04, treePos.z + 1.45);
+  }
 
   const treeLight = new THREE.PointLight(0x60a5fa, 2.4, 11, 1.8);
-  treeLight.position.set(treePos.x - 2.7, 4.1, treePos.z + 1.9);
+  treeLight.position.set(isCity ? treePos.x + 0.9 : treePos.x - 2.7, isCity ? 2.5 : 4.1, isCity ? treePos.z + 3.5 : treePos.z + 1.9);
   group.add(treeLight);
   dynamicLights.push({ light: treeLight, baseIntensity: 2.4, speed: 2.4, phase: 1.7 });
 
-  // Door Portal into Library (on elevated balcony!)
-  const libDoorPos = new THREE.Vector3(treePos.x - 2.35, 2.04, treePos.z + 1.45);
   const libGlowRing = new THREE.Mesh(
     new THREE.RingGeometry(0.45, 0.64, 24),
     new THREE.MeshBasicMaterial({ color: 0x60a5fa, side: THREE.DoubleSide, transparent: true, opacity: 0.78 }),
@@ -312,7 +384,7 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
 
   portals.push({
     id: 'enter_library',
-    label: '进入 星辉树洞书屋',
+    label: isCity ? '进入 星辉街角书店' : '进入 星辉树洞书屋',
     fromZone: 'glade',
     toZone: 'library',
     position: libDoorPos,
@@ -401,14 +473,21 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
     materialKind: 'stone',
   });
 
-  // 8. Instanced Forest Grove Perimeter & Wildflowers (biome-reactive!)
-  const grove = createInstancedForestGrove(
-    textures.bark,
-    gladeGroundHeightAt,
-    mapConfig.biome,
-    mapConfig.surprise === 'extra_flowers',
-  );
-  group.add(grove);
+  // 8. Perimeter Scenery: Instanced Forest Grove OR City Skyline & Streets
+  const perimeter = isCity
+    ? createCitySkylineAndStreets(
+        textures,
+        mapConfig.customColors?.foliageTintHex,
+        mapConfig.surprise === 'extra_flowers',
+      )
+    : createInstancedForestGrove(
+        textures.bark,
+        gladeGroundHeightAt,
+        mapConfig.biome,
+        mapConfig.surprise === 'extra_flowers',
+        mapConfig.customColors?.foliageTintHex,
+      );
+  group.add(perimeter);
 
   // 9. Outdoor NPCs: Elder Elwin & Lillian
   const elwinBuilt = createNpcModel('elwin', textures.contactShadow);
@@ -451,7 +530,9 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
     ['dew_bridge', 5.15, 0.55, -1.2],
     ['dew_roof', cottagePos.x, 5.65, cottagePos.z],
     ['dew_pillar', 8.8, 2.0, -4.5],
-    ['dew_tree_balcony', treePos.x - 2.9, 2.15, treePos.z + 1.8],
+    isCity
+      ? ['dew_tree_balcony', treePos.x, 5.55, treePos.z]
+      : ['dew_tree_balcony', treePos.x - 2.9, 2.15, treePos.z + 1.8],
   ];
   outdoorDewdropPositions.forEach(([id, dx, dy, dz]) => {
     const dewGroup = createDewdropCollectible();
@@ -479,10 +560,16 @@ function buildGladeZone(textures: TextureBundle, mapConfig: MapCreationConfig): 
   }
   const ffGeo = new THREE.BufferGeometry();
   ffGeo.setAttribute('position', new THREE.BufferAttribute(ffPositions, 3));
+  const defaultFirefly = mapConfig.biome === 'sakura' ? 0xfbcfe8 : 0xd9f99d;
+  const customFirefly = mapConfig.customColors?.fireflyHex;
+  const fireflyColor =
+    customFirefly && /^#[0-9a-fA-F]{6}$/.test(customFirefly)
+      ? Number.parseInt(customFirefly.slice(1), 16)
+      : defaultFirefly;
   const ffMat = new THREE.PointsMaterial({
     size: mapConfig.surprise === 'extra_fireflies' ? 0.44 : 0.34,
     map: textures.glowSprite,
-    color: mapConfig.biome === 'sakura' ? 0xfbcfe8 : 0xd9f99d,
+    color: fireflyColor,
     transparent: true,
     opacity: 0.9,
     depthWrite: false,
@@ -720,14 +807,15 @@ function buildApothecaryZone(textures: TextureBundle, mapConfig: MapCreationConf
   exitGlowRing.position.copy(exitPos);
   group.add(exitGlowRing);
 
+  const isCity = mapConfig.worldStyle === 'city';
   const apothReturnPos =
     mapConfig.layout === 'plaza_pair'
-      ? new THREE.Vector3(-6.8, 0.48, -4.85)
-      : new THREE.Vector3(-8.2, 0.48, -3.25);
+      ? new THREE.Vector3(-6.8, 0.48, isCity ? -5.15 : -4.85)
+      : new THREE.Vector3(-8.2, 0.48, isCity ? -3.55 : -3.25);
 
   portals.push({
     id: 'exit_apothecary',
-    label: '回到 精灵林涧',
+    label: isCity ? '回到 魔法街区' : '回到 精灵林涧',
     fromZone: 'apothecary',
     toZone: 'glade',
     position: exitPos,
@@ -978,19 +1066,23 @@ function buildLibraryZone(textures: TextureBundle, mapConfig: MapCreationConfig)
   exitGlowRing.position.copy(exitPos);
   group.add(exitGlowRing);
 
-  const libReturnPos =
-    mapConfig.layout === 'plaza_pair'
+  const isCity = mapConfig.worldStyle === 'city';
+  const libReturnPos = isCity
+    ? mapConfig.layout === 'plaza_pair'
+      ? new THREE.Vector3(8.5, 0.48, -4.85)
+      : new THREE.Vector3(8.4, 0.48, 10.45)
+    : mapConfig.layout === 'plaza_pair'
       ? new THREE.Vector3(5.55, 2.04, -6.75)
       : new THREE.Vector3(5.45, 2.04, 8.55);
 
   portals.push({
     id: 'exit_library',
-    label: '回到 精灵林涧',
+    label: isCity ? '回到 魔法街区' : '回到 精灵林涧',
     fromZone: 'library',
     toZone: 'glade',
     position: exitPos,
     spawnPosition: libReturnPos,
-    spawnYaw: -Math.PI * 0.65,
+    spawnYaw: isCity ? 0 : -Math.PI * 0.65,
     triggerRadius: 1.55,
     glowRing: exitGlowRing,
   });
