@@ -1,0 +1,6 @@
+{
+  "name": "林涧微光 · 精灵之森",
+  "description": "使用 Three.js 打造的 3D 精灵世界探索游戏：自由移动与二段跳、与林涧及小屋中的 NPC 对话互动、推门进入炼金小屋与树洞图书馆。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
